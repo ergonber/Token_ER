@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.28;
+
+contract MappingErnesto {
+    uint256 counter;
+    mapping (address => uint256) public balances;
+    mapping (uint256 => mapping (address => uint256)) public balances2;
+
+    function actualizar (uint256 newBalance) public {
+        counter ++;
+        balances[msg.sender] = newBalance;
+        balances2[counter][msg.sender] = newBalance;
+    }
+
+}
