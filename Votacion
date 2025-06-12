@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.30;
+
+contract Votacion {
+    enum Vote {
+        yes,
+        no
+    }
+
+    struct Proposal {
+        string title;
+        string description;
+        Vote[] votes;
+        uint256 start;
+        uint256 end;
+    }
+
+    uint256 private _ids;
+    uint256 constant oneDay = 1 days;
+    mapping(uint256 => Proposal) public proposals;
+
+    // Corrección importante: El mapeo debe ser address => uint256 => bool
+    mapping(address => mapping(uint256 => bool)) public voters;
+
+    function create(string memory title, string memory description) public {
+        Proposal memory proposal = Proposal({
+            title: title,
+            description: description,
+            votes: new Vote[](0),
+            start: block.timestamp + oneDay,  // La votación comienza en 1 día
+            end: block.timestamp + (2 * oneDay)  // Y termina en 2 días (dura 1 día)
+        });
+
+        uint256 currentId = _ids;
+        _ids += 1;
+        proposals[currentId] = proposal;
+    }
+
+    function vote(uint256 id, Vote _vote) public {
+        require(id < _ids, "Este id no es valido");
+        require(!voters[msg.sender][id], "Este address ya voto");
+
+        Proposal storage proposal = proposals[id];
+        require(block.timestamp >= proposal.start, "La votacion no ha comenzado");
+        require(block.timestamp <= proposal.end, "La votacion ya termino");
+
+        proposal.votes.push(_vote);
+        voters[msg.sender][id] = true;
+    }
+
+    function countVotes(uint256 id, Vote voteType) external view returns (uint256) {
+        require(id < _ids, "Este id no es valido");
+
+        Proposal storage proposal = proposals[id];
+        uint256 count;
+        for (uint256 i = 0; i < proposal.votes.length; i++) {
+            if (proposal.votes[i] == voteType) {
+                count++;
+            }
+        }
+        return count;
+    }
+}
