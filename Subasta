@@ -1,0 +1,151 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.30;
+
+contract Subasta {
+    // Estructuras de datos
+    struct Oferta {
+        address oferente;
+        uint256 monto;
+        bool reclamada;
+    }
+
+    // Parámetros de la subasta
+    address public immutable dueno;
+    uint256 public comision = 2; // 2%
+    uint256 public incrementoMinimo = 5; // 5%
+    uint256 public fechaInicio;
+    uint256 public fechaFin;
+    uint256 public ofertaMasAlta;
+    address public ganador;
+    bool public finalizada;
+
+    // Lista de ofertas
+    Oferta[] public ofertas;
+    mapping(address => uint256) public saldos; // Saldos reembolsables
+
+    // Eventos
+    event NuevaOferta(address oferente, uint256 monto);
+    event SubastaFinalizada(address ganador, uint256 monto);
+    event ReembolsoExitoso(address oferente, uint256 monto);
+    event RetiroExitoso(address oferente, uint256 monto);
+
+    // Modificadores
+    modifier soloDueno() {
+        require(msg.sender == dueno, "Solo el dueno puede ejecutar esta accion");
+        _;
+    }
+
+    modifier subastaActiva() {
+        require(block.timestamp >= fechaInicio && block.timestamp <= fechaFin, "Subasta no activa");
+        require(!finalizada, "Subasta ya finalizada");
+        _;
+    }
+
+    modifier subastaFinalizada() {
+        require(block.timestamp > fechaFin || finalizada, "Subasta aun activa");
+        _;
+    }
+
+    constructor(uint256 _duracionDias) {
+        dueno = msg.sender;
+        fechaInicio = block.timestamp;
+        fechaFin = fechaInicio + (_duracionDias * 1 days);
+    }
+
+    // Función para realizar una oferta
+    function ofertar() external payable subastaActiva {
+        uint256 monto = msg.value;
+        require(monto > 0, "Monto debe ser mayor que cero");
+
+        // Verificar incremento mínimo del 5%
+        uint256 montoMinimo = ofertaMasAlta + (ofertaMasAlta * incrementoMinimo / 100);
+        require(monto >= montoMinimo || ofertaMasAlta == 0, 
+            "Oferta debe ser al menos 5% mayor que la anterior");
+
+        // Registrar la nueva oferta
+        ofertas.push(Oferta({
+            oferente: msg.sender,
+            monto: monto,
+            reclamada: false
+        }));
+
+        // Actualizar saldos y oferta más alta
+        saldos[msg.sender] += monto;
+        ofertaMasAlta = monto;
+        ganador = msg.sender;
+
+        emit NuevaOferta(msg.sender, monto);
+    }
+
+    // Finalizar la subasta y distribuir fondos
+    function finalizarSubasta() external subastaFinalizada {
+        require(!finalizada, "Subasta ya finalizada");
+        finalizada = true;
+
+        if (ganador != address(0)) {
+            // Calcular comisión (2%)
+            uint256 comisionTotal = (ofertaMasAlta * comision) / 100;
+            uint256 montoNeto = ofertaMasAlta - comisionTotal;
+
+            // Transferir al dueño (monto neto)
+            payable(dueno).transfer(montoNeto);
+        }
+
+        emit SubastaFinalizada(ganador, ofertaMasAlta);
+    }
+
+    // Reclamar reembolso (para oferentes no ganadores)
+    function reclamarReembolso() external subastaFinalizada {
+        require(finalizada, "Subasta no finalizada aun");
+        require(msg.sender != ganador, "Ganador no puede reclamar reembolso");
+
+        uint256 montoReembolso = saldos[msg.sender];
+        require(montoReembolso > 0, "No hay fondos para reembolsar");
+
+        // Marcar como reclamado y transferir
+        saldos[msg.sender] = 0;
+        for (uint i = 0; i < ofertas.length; i++) {
+            if (ofertas[i].oferente == msg.sender) {
+                ofertas[i].reclamada = true;
+            }
+        }
+
+        payable(msg.sender).transfer(montoReembolso);
+        emit ReembolsoExitoso(msg.sender, montoReembolso);
+    }
+
+    // Retirar excedentes durante la subasta
+    function retirarExcedente() external subastaActiva {
+        uint256 saldoTotal = saldos[msg.sender];
+        require(saldoTotal > 0, "No hay saldo disponible");
+
+        uint256 ultimaOferta = 0;
+        for (uint i = ofertas.length; i > 0; i--) {
+            if (ofertas[i-1].oferente == msg.sender) {
+                ultimaOferta = ofertas[i-1].monto;
+                break;
+            }
+        }
+
+        require(saldoTotal > ultimaOferta, "No hay excedente para retirar");
+
+        uint256 excedente = saldoTotal - ultimaOferta;
+        saldos[msg.sender] = ultimaOferta;
+        
+        payable(msg.sender).transfer(excedente);
+        emit RetiroExitoso(msg.sender, excedente);
+    }
+
+    // Funciones de consulta
+    function obtenerOfertas() external view returns (Oferta[] memory) {
+        return ofertas;
+    }
+
+    function obtenerOfertaMasAlta() external view returns (uint256, address) {
+        return (ofertaMasAlta, ganador);
+    }
+
+    function obtenerEstadoSubasta() external view returns (bool, uint256, uint256) {
+        return (finalizada, fechaInicio, fechaFin);
+    }
+}
